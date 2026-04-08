@@ -319,7 +319,6 @@ Chess.com развернул Realtime Chess Network — глобально ра�
 ### 6.1 Схема системы
  
 ```mermaid
-%%{init: {"theme": "default", "flowchart": {"useMaxWidth": false, "width": 1200}}}%%
 graph TD
     subgraph "Бэкенд"
         API[API]
