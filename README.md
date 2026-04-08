@@ -321,7 +321,7 @@ Chess.com развернул Realtime Chess Network — глобально ра�
 ```mermaid
 
 config:
-    flowchart:
+    graph:
         wrappingWidth: 1000
 graph TD
     subgraph "Бэкенд"
