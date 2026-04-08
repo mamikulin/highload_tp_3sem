@@ -528,11 +528,11 @@ erDiagram
 
 | Название таблицы                                                                                           | СУБД        | Обоснование выбора |
 |:-------------------------------------:|:----:|:----:|
-| `UserAccount`, `UserSettings`, `Friendship`, `PlayerRating`, `Tournament`, `TournamentParticipant`, `Puzzle`, `FavoriteGame`, `CheatCase` | PostgreSQL | OLTP‑нагрузка, транзакционная целостность, связи между сущностями. [web:10] |
-| `AuthSession`, `MatchmakingQueue`, `RatingLeaderboardCache`, `ArchiveSearchCache`                         | Redis      | Низкая задержка, TTL, частые обновления, кэши и очереди. [web:5][web:41] |
-| `Game`, `GameArchiveIndex`, `ChatMessage`, `PuzzleAttempt`, `GameSpectator`, `CheatSignalEvent`           | ScyllaDB   | Большой объём, write‑heavy и read‑heavy нагрузки, горизонтальное масштабирование. [web:5][web:42] |
-| Сырые события игр/античита (`GameEvents`, `PuzzleEvents`, `AntiCheatEvents`)                              | ClickHouse | OLAP, аналитика, логгирование, дешёвые массовые вставки. [web:8] |
-| Аватары, экспорт PGN (`AvatarStore`, `PGNExport`)                                                         | S3 / MinIO | Хранение файлов, дешёвая георепликация, доступ по URL. [web:6] |
+| `UserAccount`, `UserSettings`, `Friendship`, `PlayerRating`, `Tournament`, `TournamentParticipant`, `Puzzle`, `FavoriteGame`, `CheatCase` | PostgreSQL | OLTP‑нагрузка, транзакционная целостность, связи между сущностями. |
+| `AuthSession`, `MatchmakingQueue`, `RatingLeaderboardCache`, `ArchiveSearchCache`                         | Redis      | Низкая задержка, TTL, частые обновления, кэши и очереди. |
+| `Game`, `GameArchiveIndex`, `ChatMessage`, `PuzzleAttempt`, `GameSpectator`, `CheatSignalEvent`           | ScyllaDB   | Большой объём, write‑heavy и read‑heavy нагрузки, горизонтальное масштабирование. |
+| Сырые события игр/античита (`GameEvents`, `PuzzleEvents`, `AntiCheatEvents`)                              | ClickHouse | OLAP, аналитика, логгирование, дешёвые массовые вставки. |
+| Аватары, экспорт PGN (`AvatarStore`, `PGNExport`)                                                         | S3 | Хранение файлов, дешёвая георепликация, доступ по URL. |
 
 ---
 
@@ -542,7 +542,7 @@ erDiagram
 
 | Таблица                    | Поле                   | Тип индекса | Обоснование |
 |:----:|:----:|:----:|:----:|
-| `UserAccount`             | `user_id`              | B-tree (PK) | Поиск пользователя и связь с другими таблицами. [web:10] |
+| `UserAccount`             | `user_id`              | B-tree (PK) | Поиск пользователя и связь с другими таблицами. |
 | `UserAccount`             | `login`                | B-tree (UNIQUE) | Авторизация и поиск по логину. |
 | `UserSettings`            | `user_id`              | B-tree (PK) | Быстрый доступ к настройкам по пользователю. |
 | `Friendship`              | `(requester_id, addressee_id)` | B-tree (PK) | Уникальность связи «дружба/блокировка». |
@@ -563,8 +563,8 @@ erDiagram
 
 | «Таблица» в Redis         | Поля / ключи                                  | Тип структуры | Обоснование |
 |:----:|:----:|:----:|:----:|
-| `AuthSession`            | `session:{session_id}`, `sessions:{user_id}`  | String, Set   | Проверка сессии, список активных сессий пользователя. [web:41] |
-| `MatchmakingQueue`       | `mm:{variant}:{time_control}` (score = rating)| Sorted Set    | Диапазонный поиск соперника по рейтингу. [web:27][web:44] |
+| `AuthSession`            | `session:{session_id}`, `sessions:{user_id}`  | String, Set   | Проверка сессии, список активных сессий пользователя.  |
+| `MatchmakingQueue`       | `mm:{variant}:{time_control}` (score = rating)| Sorted Set    | Диапазонный поиск соперника по рейтингу.  |
 | `RatingLeaderboardCache` | `leaderboard:{variant}:{page}`               | String        | Хранение готового топ‑N игроков по варианту. |
 | `ArchiveSearchCache`     | `archive:{params_hash}`                      | String        | Кэш результатов поиска по архиву с TTL. |
 
@@ -572,12 +572,12 @@ erDiagram
 
 | Таблица             | Ключ (Partition / Clustering)                     | Обоснование |
 |:----:|:----:|:----:|
-| `Game`              | Partition: `game_id`                              | Чтение партии по ID, запись один раз по завершении. [web:5] |
-| `GameArchiveIndex`  | Partition: `user_id`; Clustering: `played_at DESC` (+ дополнительные индексы по `opening_eco`, `variant`, `result`) | Быстрый поиск партий по пользователю и фильтрам. [web:10] |
+| `Game`              | Partition: `game_id`                              | Чтение партии по ID, запись один раз по завершении.|
+| `GameArchiveIndex`  | Partition: `user_id`; Clustering: `played_at DESC` (+ дополнительные индексы по `opening_eco`, `variant`, `result`) | Быстрый поиск партий по пользователю и фильтрам.  |
 | `ChatMessage`       | Partition: `game_id`; Clustering: `message_id`    | История чата внутри партии. |
 | `PuzzleAttempt`     | Partition: `user_id`; Clustering: `attempted_at`  | История решений задач по пользователю. |
 | `GameSpectator`     | Partition: `game_id`; Clustering: `user_id`       | Список зрителей активной партии. |
-| `CheatSignalEvent`  | Partition: `game_id`; Clustering: `event_id`      | Сигналы античита по конкретной партии. [web:8] |
+| `CheatSignalEvent`  | Partition: `game_id`; Clustering: `event_id`      | Сигналы античита по конкретной партии.  |
 
 ---
 
@@ -585,7 +585,7 @@ erDiagram
 
 | Таблица / хранилище        | Поле / аспект                                             | Обоснование |
 |:----:|:----:|:----:|
-| `GameArchiveIndex`         | Дублирует цвет, результат, дебют (ECO), контроль, рейтинг соперника, `played_at` | Ускорение поиска партий без JOIN с `Game`. [web:10] |
+| `GameArchiveIndex`         | Дублирует цвет, результат, дебют (ECO), контроль, рейтинг соперника, `played_at` | Ускорение поиска партий без JOIN с `Game`. |
 | `RatingLeaderboardCache`   | Списки пользователей с рейтингом по варианту             | Снятие нагрузки по сортировке с `PlayerRating`. |
 | `ArchiveSearchCache`       | Списки `game_id` по популярным фильтрам                  | Кэш горячих запросов архива. |
 | `Puzzle` (in‑memory кэш)   | Полный объект задачи                                      | Быстрый подбор задач по сложности при малом объёме базы. |
@@ -596,9 +596,9 @@ erDiagram
 
 | Таблица / сущность                          | СУБД       | Ключ шардирования | Обоснование |
 |:----:|:----:|:----:|:----:|
-| `UserAccount`, `UserSettings`, `Friendship`, `PlayerRating`, `FavoriteGame`, `CheatCase` | PostgreSQL | `user_id`          | Равномерное распределение нагрузки по пользователям. [web:10] |
+| `UserAccount`, `UserSettings`, `Friendship`, `PlayerRating`, `FavoriteGame`, `CheatCase` | PostgreSQL | `user_id`          | Равномерное распределение нагрузки по пользователям. |
 | `Tournament`, `TournamentParticipant`       | PostgreSQL | `tournament_id`    | Турниры локализованы по ID. |
-| `Game`, `GameArchiveIndex`, `ChatMessage`, `PuzzleAttempt`, `GameSpectator`, `CheatSignalEvent` | ScyllaDB | `game_id` / `user_id` | Масштабируемость игрового и архивного контуров. [web:42] |
+| `Game`, `GameArchiveIndex`, `ChatMessage`, `PuzzleAttempt`, `GameSpectator`, `CheatSignalEvent` | ScyllaDB | `game_id` / `user_id` | Масштабируемость игрового и архивного контуров. |
 | Redis‑ключи (`session:*`, `mm:*`, `leaderboard:*`, `archive:*`) | Redis     | hash‑slot ключа   | Авто‑шардирование по слотам. |
 
 ---
@@ -607,7 +607,7 @@ erDiagram
 
 | Таблица (ClickHouse)  | Ключ партиционирования | Период  | Обоснование |
 |:----:|:----:|:----:|:----:|
-| `GameEvents`          | `event_date`           | 1 день / 1 месяц | Выборки по датам и TTL старых событий. [web:8] |
+| `GameEvents`          | `event_date`           | 1 день / 1 месяц | Выборки по датам и TTL старых событий. |
 | `PuzzleEvents`        | `event_date`           | 1 месяц | Аналитика по задачам. |
 | `AntiCheatEvents`     | `event_date`           | 1 месяц | Анализ подозрительных паттернов с ограниченным сроком хранения. |
 
