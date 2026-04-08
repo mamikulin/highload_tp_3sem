@@ -319,39 +319,39 @@ Chess.com развернул Realtime Chess Network — глобально ра�
 ### 6.1 Схема системы
  
 ```mermaid
-graph TD
-    subgraph "Бэкенд"
-        API[API]
-        GAME[Game]
-        MM[Matchmaking]
+graph LR
+    subgraph BE["Бэкенд"]
+        API["API Servers"]
+        GAME["Game Servers"]
+        MM["Matchmaking"]
     end
  
-    subgraph "Multiplexing"
-        PB[PgBouncer]
+    subgraph MX["Пул соединений"]
+        PB["PgBouncer"]
     end
  
-    subgraph "PostgreSQL"
-        PG_M[(Master\nОрегон)]
-        PG_S[(Sync\nВирджиния)]
-        PG_A[(Async\nНидерланды)]
-        PG_M -- Sync --> PG_S
-        PG_M -- Async --> PG_A
+    subgraph PG["PostgreSQL — транзакции"]
+        PG_M[("Master — Орегон")]
+        PG_S[("Sync Replica — Вирджиния")]
+        PG_A[("Async Replica — Нидерланды")]
+        PG_M --> PG_S
+        PG_M --> PG_A
     end
  
-    subgraph "ScyllaDB"
-        CAS[(Scylla\nCluster)]
+    subgraph SC["ScyllaDB — игровые данные"]
+        CAS[("ScyllaDB Cluster")]
     end
  
-    subgraph "Redis"
-        RED[(Redis\nCluster)]
+    subgraph RD["Redis — кэш и очереди"]
+        RED[("Redis Cluster")]
     end
  
-    subgraph "Kafka"
-        KAFKA[[Kafka]]
+    subgraph KF["Шина данных"]
+        KAFKA[["Apache Kafka"]]
     end
  
-    subgraph "S3"
-        OBJ[(S3)]
+    subgraph S3G["Объектное хранилище"]
+        OBJ[("S3")]
     end
  
     API --> PB
@@ -361,9 +361,9 @@ graph TD
     API --> OBJ
     MM --> RED
     GAME --> CAS
-    GAME -. "flush on finish" .-> CAS
-    API -- "events" --> KAFKA
-    PG_M -. "WAL" .-> OBJ
+    GAME -.->|flush on finish| CAS
+    API -->|events| KAFKA
+    PG_M -.->|WAL archiving| OBJ
 ```
 
 ### 6.2 Таблица с описанием физической схемы БД
