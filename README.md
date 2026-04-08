@@ -285,8 +285,213 @@ Chess.com развернул Realtime Chess Network — глобально ра�
 
 ### Логическая схема
 
-![alt text](images/dbsheme.png) 
-*Логическая схема*
+
+```mermaid
+erDiagram
+    UserAccount {
+        bigint user_id PK
+        varchar login
+        varchar display_name
+        varchar email_phone_mask
+        varchar password_hash
+        varchar plus_plan
+        varchar status
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    AuthSession {
+        varchar session_id PK
+        bigint user_id FK
+        varchar device_id
+        varchar refresh_token_hash
+        varchar user_agent_hash
+        varchar ip_prefix
+        timestamp expires_at
+        timestamp last_seen_at
+        timestamp revoked_at
+    }
+
+    UserSettings {
+        bigint user_id PK
+        varchar language
+        varchar board_theme
+        varchar piece_set
+        boolean automate_queen
+        boolean sound_enabled
+        timestamp updated_at
+    }
+
+    Friendship {
+        bigint requester_id FK
+        bigint addressee_id FK
+        varchar status
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    PlayerRating {
+        bigint user_id FK
+        varchar variant
+        int rating
+        float rd
+        float volatility
+        int games_played
+        timestamp updated_at
+    }
+
+    MatchmakingQueue {
+        bigint user_id FK
+        varchar variant
+        varchar time_control
+        int rating
+        int rating_range
+        timestamp enqueued_at
+    }
+
+    Game {
+        bigint game_id PK
+        bigint white_user_id FK
+        bigint black_user_id FK
+        varchar time_control
+        varchar variant
+        varchar result
+        varchar termination
+        text pgn
+        varchar opening_eco
+        varchar opening_name
+        int white_rating
+        int black_rating
+        int white_rating_delta
+        int black_rating_delta
+        timestamp started_at
+        timestamp finished_at
+        varchar server_id
+    }
+
+    GameArchiveIndex {
+        bigint game_id FK
+        bigint user_id FK
+        bigint opponent_id FK
+        varchar color
+        varchar opening_eco
+        varchar result
+        varchar variant
+        varchar time_control
+        int opponent_rating
+        timestamp played_at
+    }
+
+    GameSpectator {
+        bigint game_id FK
+        bigint user_id FK
+        timestamp joined_at
+        timestamp last_seen_at
+        boolean is_active
+    }
+
+    ChatMessage {
+        bigint message_id PK
+        bigint game_id FK
+        bigint user_id FK
+        text text
+        timestamp sent_at
+    }
+
+    FavoriteGame {
+        bigint user_id FK
+        bigint game_id FK
+        text note
+        timestamp added_at
+    }
+
+    Puzzle {
+        varchar puzzle_id PK
+        varchar fen
+        varchar moves
+        int rating
+        int rating_deviation
+        varchar themes
+        bigint game_id FK
+        int popularity
+    }
+
+    PuzzleAttempt {
+        bigint user_id FK
+        varchar puzzle_id FK
+        boolean solved
+        int time_ms
+        int rating_before
+        int rating_after
+        timestamp attempted_at
+    }
+
+    Tournament {
+        bigint tournament_id PK
+        bigint creator_id FK
+        varchar name
+        varchar variant
+        varchar time_control
+        varchar format
+        varchar status
+        timestamp starts_at
+        timestamp ends_at
+        int max_players
+    }
+
+    TournamentParticipant {
+        bigint tournament_id FK
+        bigint user_id FK
+        float score
+        int rank
+        timestamp joined_at
+    }
+
+    CheatSignalEvent {
+        bigint event_id PK
+        bigint user_id FK
+        bigint game_id FK
+        int move_number
+        varchar signal_type
+        float signal_value
+        timestamp created_at
+        json meta
+    }
+
+    CheatCase {
+        bigint case_id PK
+        bigint user_id FK
+        float suspicion_score
+        varchar status
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    UserAccount ||--o{ AuthSession : ""
+    UserAccount ||--|| UserSettings : ""
+    UserAccount ||--o{ Friendship : ""
+    UserAccount ||--o{ PlayerRating : ""
+    UserAccount ||--o{ MatchmakingQueue : ""
+    UserAccount ||--o{ Game : ""
+    UserAccount ||--o{ GameArchiveIndex : ""
+    UserAccount ||--o{ GameSpectator : ""
+    UserAccount ||--o{ ChatMessage : ""
+    UserAccount ||--o{ FavoriteGame : ""
+    UserAccount ||--o{ PuzzleAttempt : ""
+    UserAccount ||--o{ TournamentParticipant : ""
+    UserAccount ||--o{ Tournament : ""
+    UserAccount ||--o{ CheatSignalEvent : ""
+    UserAccount ||--o{ CheatCase : ""
+
+    Game ||--o{ GameArchiveIndex : ""
+    Game ||--o{ GameSpectator : ""
+    Game ||--o{ ChatMessage : ""
+    Game ||--o{ FavoriteGame : ""
+    Game ||--o{ CheatSignalEvent : ""
+    
+    Puzzle ||--o{ PuzzleAttempt : ""
+    Tournament ||--o{ TournamentParticipant : ""
+```
 
 ### Таблица сущностей и хранилищ
 
