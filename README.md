@@ -522,82 +522,174 @@ erDiagram
 | `CheatSignalEvent` | Сырые сигналы античита по ходам/играм. Ключ: `event_id`, secondary по `(user_id, game_id)` | `~128 B/row`, `~0.5–1 TB/год` | `~500` | `~2 000` | **Strong** для записи | Распределение по `user_id` широкое, больше всего событий у подозрительных аккаунтов; старые события можно выносить в data lake |
 | `CheatCase` | Агрегированное «дело» по пользователю. Ключ: `case_id`, secondary по `user_id` | `~256 B/row`, `до ~20 MB` | `~100` | `~20` | **Strong** | Небольшое количество активных кейсов; читается в основном модераторами |
 
-## 6. Физическая схема БД
+## Часть 6. Физическая схема БД
 
 ### 6.1 Схема системы
- 
+
 ```mermaid
-graph LR
-    subgraph BE["Бэкенд"]
-        API["API Servers"]
-        GAME["Game Servers"]
-        MM["Matchmaking"]
+graph TD
+    subgraph APP["Application Layer"]
+        API["API / Backend Services"]
+        MM["Matchmaking Service"]
+        GS["Game Servers (WebSocket)"]
+        PUZ["Puzzles Service"]
+        ARCH["Archive API"]
     end
- 
-    subgraph MX["Пул соединений"]
-        PB["PgBouncer"]
+
+    subgraph PGPOOL["Connection Multiplexing"]
+        PGB["PgBouncer / ProxySQL"]
     end
- 
-    subgraph PG["PostgreSQL — транзакции"]
-        PG_M[("Master — Орегон")]
-        PG_S[("Sync Replica — Вирджиния")]
-        PG_A[("Async Replica — Нидерланды")]
-        PG_M --> PG_S
-        PG_M --> PG_A
+
+    subgraph PG["Транзакционный контур (PostgreSQL)"]
+        PGM["Primary"]
+        PGR1["Read Replica 1"]
+        PGR2["Read Replica 2"]
+
+        UA["UserAccount"]
+        USET["UserSettings"]
+        PR["PlayerRating"]
+        FR["Friendship"]
+        TOU["Tournament"]
+        TP["TournamentParticipant"]
+        PUZZLE["Puzzle"]
     end
- 
-    subgraph SC["ScyllaDB — игровые данные"]
-        CAS[("ScyllaDB Cluster")]
+
+    subgraph NOSQL["Игровые и архивные данные (ScyllaDB / Cassandra)"]
+        GAMES["Game"]
+        GIDX["GameArchiveIndex"]
+        CHAT["ChatMessage"]
+        PA["PuzzleAttempt"]
     end
- 
-    subgraph RD["Redis — кэш и очереди"]
-        RED[("Redis Cluster")]
+
+    subgraph REDIS["Кэш и быстродействующие структуры (Redis Cluster)"]
+        RS["AuthSessionKV"]
+        MQ["MatchmakingQueue"]
+        LBC["RatingLeaderboardCache"]
+        ARCACHE["ArchiveSearchCache"]
     end
- 
-    subgraph KF["Шина данных"]
-        KAFKA[["Apache Kafka"]]
+
+    subgraph SEARCH["Поиск по архиву (Secondary Indexing)"]
+        GIDXMV["Materialized Views / Secondary Indexes"]
     end
- 
-    subgraph S3G["Объектное хранилище"]
-        OBJ[("S3")]
+
+    subgraph BUS["Асинхронная шина данных"]
+        KAFKA["Kafka"]
     end
- 
-    API --> PB
-    PB --> PG_M
-    API --> RED
-    API --> CAS
-    API --> OBJ
-    MM --> RED
-    GAME --> CAS
-    GAME -.->|flush on finish| CAS
-    API -->|events| KAFKA
-    PG_M -.->|WAL archiving| OBJ
+
+    subgraph ANALYTICS["Аналитика (DWH / ClickHouse-класс)"]
+        EVG["GameEvents"]
+        EVPUZ["PuzzleEvents"]
+        EVAN["AntiCheatEvents"]
+    end
+
+    subgraph OBJ["Object Storage (S3 / MinIO)"]
+        AVA["AvatarStore"]
+        PGNOBJ["PGNExportStore"]
+    end
+
+    API --> PGB
+    API --> REDIS
+    API --> ARCH
+    API --> AVA
+    ARCH --> NOSQL
+    MM --> MQ
+    GS --> MQ
+    GS --> NOSQL
+    PUZ --> PG
+    PUZ --> NOSQL
+    API -- "events" --> KAFKA
+    GS -- "game events" --> KAFKA
+    PUZ -- "puzzle events" --> KAFKA
+    KAFKA --> ANALYTICS
+    GAMES -. "index build" .-> GIDXMV
 ```
 
-### 6.2 Таблица с описанием физической схемы БД
+- `UserAccount`, `UserSettings`, `PlayerRating`, `Friendship`, `Tournament`, `TournamentParticipant`, `Puzzle` физически хранятся в `PostgreSQL`; [web:10]
+- `Game`, `GameArchiveIndex`, `ChatMessage`, `PuzzleAttempt` лежат в кластере `ScyllaDB / Cassandra`; [web:10]
+- `AuthSessionKV`, `MatchmakingQueue`, `RatingLeaderboardCache`, `ArchiveSearchCache` живут в `Redis Cluster`;
+- индекс по архиву (`GameArchiveIndex` + materialized views) обслуживает поиск по дебюту, контролю и результату;
+- события игр/задач уходят через `Kafka` в аналитический DWH (например, ClickHouse‑класс);
+- аватары и экспорты PGN лежат в `S3 / MinIO`, игра оттуда ничего тяжёлого не читает онлайн;
+- `PostgreSQL` обслуживает OLTP‑контур (аккаунты, рейтинги, турниры, puzzles‑метаданные);
+- `Redis` снимает горячие read/write‑сценарии (сессии, матчмейкинг, кэши);
+- `ScyllaDB / Cassandra` обслуживает write‑heavy игровой контур и архив.
 
-| Таблица / Данные | СУБД | Индексы | Денормализация | Шардирование и резервирование | Балансировка и клиентские библиотеки | Резервное копирование |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `UserAccount`, `UserSettings`, `Friendship` | PostgreSQL | B-tree по `user_id`, Hash по `login` | Нет | Hash-шардинг по `user_id`. Резерв: Master (DC1), Sync Replica (DC2), Async Replica (DC3) | Клиент `pgx`. Мультиплексирование через PgBouncer | Full-бэкап раз в сутки (на S3). WAL-архивирование каждую минуту |
-| `PlayerRating` | PostgreSQL | Composite PK `(user_id, variant)`, B-tree `(variant, rating DESC)` | Нет | Hash-шардинг по `user_id`. Резерв: аналогично `UserAccount` | Запись на мастер, чтение с реплики. Через PgBouncer | В рамках бэкапа основного кластера PostgreSQL |
-| `Tournament`, `TournamentParticipant`, `FavoriteGame` | PostgreSQL | PK по `tournament_id`, B-tree `(status, starts_at)`, Composite PK `(tournament_id, score DESC)` | Нет | Hash-шардинг по `tournament_id` / `user_id`. Резерв: аналогично `UserAccount` | Через PgBouncer | В рамках бэкапа основного кластера PostgreSQL |
-| `Puzzle` | PostgreSQL + in-memory | B-tree `(rating, popularity DESC)` | Вся таблица (~300 МБ) полностью кэшируется в памяти каждого узла | Не шардируется. Резерв: аналогично `UserAccount` | Горячий путь идёт через in-memory кэш; PostgreSQL — только durable-источник при рестарте | В рамках бэкапа основного кластера PostgreSQL |
-| `AuthSession` | Redis | Key-value по `session_id`, Secondary Set по `user_id` | Хранение TTL-сессий и токенов в виде hash-структур | Redis Cluster (hash slot по `session_id`). Replica на каждый мастер | Клиент `go-redis`. Встроенный cluster-aware routing | AOF (everysec) + RDB раз в час. При сбое сессии сбрасываются |
-| `MatchmakingQueue` | Redis | Sorted Set с ключом `matchmaking:{variant}:{time_control}`, скор = рейтинг | Нет | Redis Cluster (hash tag по `{variant}:{time_control}`, вся очередь одного варианта на одном слоте) | Атомарные операции через Lua-скрипт. Клиент `go-redis` | AOF (everysec). Потеря очереди при аварии допустима — переподключение |
-| `ArchiveSearchCache`, `RatingLeaderboardCache` | Redis | Key-value по хэшу параметров / `{variant}:{page}` | Предрасчитанные результаты поиска и лидербордов | Redis Cluster (hash slot по ключу). Replica на каждый мастер | Клиент `go-redis` | Не бэкапируются. Восстанавливаются из ScyllaDB / PostgreSQL |
-| `Game`, `GameArchiveIndex`, `ChatMessage`, `PuzzleAttempt` | ScyllaDB | Partition Key: `game_id` / `user_id`. Clustering Key: `played_at DESC` / `message_id ASC`. Materialized Views по `opening_eco`, `variant`, `result` | `GameArchiveIndex` дублирует поля из `Game` для поиска без join. В `Game` хранятся `white_rating`, `black_rating`, `*_delta` — снимок рейтингов на момент партии | Consistent hashing по Partition Key. Replication Factor = 3. Партиционирование по месяцам для `PuzzleAttempt` | Клиент `gocql` + `gocqlx`. Token-aware routing напрямую к нужному узлу | Снапшоты через Scylla Manager раз в сутки (на S3). Очистка старых логов через TTL |
-| `GameMoveBuffer` | In-process memory | map `game_id -> []Move` на game-сервере | Нет | Аффинность по `game_id` к конкретному game-серверу на всё время партии | Sticky WebSocket. L4 использует consistent hashing по `game_id` для реконнектов | Не бэкапируется. При падении сервера партия пересчитывается из последнего flush |
-| Аватары, медиа (S3) | S3-совместимое хранилище | URL-ключ объекта | В `UserAccount` хранится только `avatar_url` | Репликация между регионами (cross-region). Versioning включён | AWS S3 SDK (`minio-go`). Presigned URL для прямой отдачи клиенту без проксирования | Георепликация бакетов в фоновом режиме |
+### 6.2 Денормализация
 
-### 6.3 Обоснование отказоустойчивости и работы под нагрузкой
+В физической схеме используются следующие денормализации:
 
--  **Транзакционная нагрузка:** PostgreSQL обслуживает профили, рейтинги и турниры. Пиковая write-нагрузка здесь умеренная, основной поток — чтение. Синхронная реплика в соседнем ДЦ гарантирует нулевую потерю данных при переключении мастера.
+1. `GameArchiveIndex` хранит денормализованную строку на каждый просмотр архива: `user_id`, `opponent_id`, цвет, дебют (ECO), результат, вариант, рейтинг соперника, контроль времени, `played_at` — это позволяет выполнять фильтрацию по архиву без join’а с `Game`. [web:10]
+2. `RatingLeaderboardCache` в `Redis` хранит готовые топ‑N игроков по варианту и странице (`leaderboard:{variant}:{page}`), чтобы не выполнять тяжёлые сортировки по `PlayerRating` в PostgreSQL при каждом запросе. [web:10]
+3. `ArchiveSearchCache` в `Redis` хранит кешированные результаты сложных запросов по `GameArchiveIndex` (хэш параметров фильтра → список `game_id`) с небольшим TTL. [web:10]
+4. `Puzzle` полностью кэшируется в памяти приложений (по `puzzle_id`), а в PostgreSQL хранится только «истина» (FEN, решение, рейтинг, темы), так как база задач небольшая. [web:10]
 
-- **Тяжёлая запись игровых данных:** Пиковые ~111k RPS WebSocket-фреймов полностью изолированы в `GameMoveBuffer` в памяти game-сервера — ScyllaDB их не видит. Запись в ScyllaDB происходит одним flush по завершении партии (~20M партий/сутки, ~231 RPS). LSM-Tree структура ScyllaDB минимизирует I/O при такой нагрузке; Replication Factor 3 обеспечивает отказоустойчивость при потере одного узла.
+### 6.3 Таблица с описанием таблиц и хранилищ
 
-- **Матчмейкинг:** Диапазонный поиск по рейтингу в Redis Sorted Set через `ZRANGEBYSCORE` выполняется за O(log N + M). Атомарность операции «найти и удалить» гарантируется Lua-скриптом на стороне Redis — race condition исключён без распределённых блокировок.
+| Таблица / данные | СУБД / хранилище | Индексы | Денормализация | Шардирование и резервирование | Назначение |
+|---|---|---|---|---|---|
+| `UserAccount`, `UserSettings` | PostgreSQL | PK по `user_id`, уникальные по `login` / `email` | Нет | Hash‑шардинг по `user_id`; primary + 2 replica | Аккаунт, базовый профиль и настройки внешнего вида |
+| `PlayerRating` | PostgreSQL | PK `(user_id, variant)`, индекс `(variant, rating DESC)` | Нет | Hash‑шардинг по `user_id`; primary + 2 replica | Транзакционный рейтинг по каждому варианту |
+| `Friendship` | PostgreSQL | PK `(requester_id, addressee_id)`, индекс по `addressee_id` | Нет | Hash‑шардинг по `requester_id`; primary + 2 replica | Социальные связи (друзья, блокировки) |
+| `Tournament`, `TournamentParticipant` | PostgreSQL | PK `tournament_id`, композитный `(tournament_id, user_id)` | Нет | Hash‑шардинг по `tournament_id`; primary + 2 replica | Метаданные турниров и участники |
+| `Puzzle` | PostgreSQL (+ in‑memory кэш) | PK `puzzle_id`, индекс `(rating, popularity)` | Да, кэшируется целиком на приложениях | Не шардируется (малый объём); реплики для чтения | База задач: FEN, решения, темы, рейтинг |
+| `AuthSessionKV` | Redis Cluster | Key `session:{session_id}`, Set `sessions:{user_id}` | Нет | Hash‑слоты по `session_id`; мастер + реплика | Хранение refresh‑сессий и активных устройств |
+| `MatchmakingQueue` | Redis Cluster | Sorted Set `mm:{variant}:{time_control}` | Да, очередь матчмейкинга в ZSET | Hash‑tag по `{variant}:{time_control}`; мастер + реплика | Быстрый подбор соперника по рейтингу |
+| `RatingLeaderboardCache` | Redis Cluster | Key `leaderboard:{variant}:{page}` | Да, готовый топ‑N | Hash‑слоты по ключу; мастер + реплика | Кэш глобальных и локальных лидербордов |
+| `ArchiveSearchCache` | Redis Cluster | Key `archive:{params_hash}` | Да, кеш выдачи архива | Hash‑слоты по ключу; мастер + реплика | Кэш результатов сложных фильтров по архиву |
+| `Game` | ScyllaDB / Cassandra | Partition `game_id` | Нет (нормализованный PGN + метаданные) | Consistent hashing по `game_id`, RF=3 | Хранение завершённых партий с PGN и рейтинг‑дельтами |
+| `GameArchiveIndex` | ScyllaDB / Cassandra | Partition `(user_id, opening_eco/variant/result)` + clustering по `played_at` | Да, дублирует часть полей `Game` | Hash по `user_id`; RF=3; materialized views | Поиск партий по дебюту, варианту, цвету, результату |
+| `ChatMessage` | ScyllaDB / Cassandra | Partition `game_id`, clustering `message_id` | Нет | Hash по `game_id`; RF=3 | Сообщения чата внутри партии |
+| `PuzzleAttempt` | ScyllaDB / Cassandra | Partition `user_id`, clustering `attempted_at` | Нет | Hash по `user_id`; RF=3; партиционирование по дате | История решений задач и изменение puzzle‑рейтинга |
+| `GameEvents`, `PuzzleEvents`, `AntiCheatEvents` | DWH / ClickHouse‑класс | `ORDER BY (user_id, event_ts)` | Нет | Шард по `user_id`, партиция по месяцу, реплики | Сырые события для аналитики, античита и ML |
+| `AvatarStore`, `PGNExportStore` | S3 / MinIO | Object key (например, по `user_id` / `game_id`) | Нет | Георепликация бакетов, версионирование | Аватары, экспорты PGN и другие файлы |
 
-- **Поиск по архиву:** Миллиарды партий фильтруются через Materialized Views в ScyllaDB без cross-partition запросов. Горячие запросы (последние партии, популярные дебюты) покрываются `ArchiveSearchCache` в Redis с TTL 60 секунд, снимая основную нагрузку с кластера ScyllaDB.
+### 6.4 Индексы
+
+- **PostgreSQL**: в основном индексы типа B‑Tree по `user_id`, `variant`, `tournament_id`, а также композитные по `(variant, rating DESC)` и `(tournament_id, score)` для лидербордов и турнирных таблиц. [web:10]
+- **ScyllaDB / Cassandra**: ключи партиционирования/кластеризации для оптимизации запросов к архиву и чату (`(user_id, played_at DESC)`, `(game_id, message_id)`). [web:10]
+- **Redis**: адресация по ключу, дополнительные структуры (Sorted Set, Set) для матчмейкинга и сессий.
+- **DWH (ClickHouse‑класс)**: `ORDER BY` и партиционирование по дате событий.
+- **S3**: доступ по `object key`, построенному по `user_id`/`game_id`.
+
+### 6.5 Выбор СУБД, клиентские библиотеки и интеграции
+
+| Хранилище | Причина выбора | Библиотека / интеграция |
+|---|---|---|
+| PostgreSQL | ACID, богатые индексы, удобна для аккаунтов, рейтингов и турниров | `pgx`, `sqlc` / `gorm` поверх `database/sql` |
+| PgBouncer / ProxySQL | мультиплексирование и разделение read/write | серверный пулер между API и кластером PostgreSQL |
+| Redis Cluster | минимальная задержка и структуры данных для матчмейкинга и кэшей | `go-redis` с cluster‑mode |
+| ScyllaDB / Cassandra | линейно масштабируемое NoSQL для миллиардов партий и чатов | `gocql`, `gocqlx` с token‑aware routing |
+| Kafka | асинхронные события игр и задач для аналитики и античита | `segmentio/kafka-go` / `confluent-kafka-go` |
+| DWH (например, ClickHouse) | дешёвая аналитика по событиям с большим QPS | `clickhouse-go` |
+| S3 / MinIO | надёжное хранение файлов и экспортов PGN | `minio-go` / AWS S3 SDK |
+
+### 6.6 Балансировка запросов и мультиплексирование подключений
+
+| Хранилище | Механизм | Как работает |
+|---|---|---|
+| PostgreSQL | PgBouncer + read/write split | запись идёт на primary, чтение — на реплики, PgBouncer пулирует тысячи коротких подключений в десятки долгоживущих |
+| Redis Cluster | cluster‑aware client | клиент вычисляет слот для ключа и сразу ходит на нужный master, failover прозрачно переключает на реплику |
+| ScyllaDB / Cassandra | token‑aware routing | драйвер знает распределение токенов и шлёт запросы непосредственно на ноды, хранящие партицию |
+| Kafka → DWH | batch‑ingest консьюмеры | события читаются пачками и пишутся в аналитическое хранилище без нагрузки на OLTP |
+| S3 / MinIO | HTTP‑gateway / SDK | backend работает с объектами через SDK, клиенты получают только готовые ссылки (presigned URL) |
+
+### 6.7 Схема резервного копирования
+
+| Хранилище | Что бэкапится | Схема |
+|---|---|---|
+| PostgreSQL | аккаунты, рейтинги, турниры, база задач | ежедневный full‑бэкап + WAL‑архивирование для `PITR` |
+| Redis Cluster | сессии и очереди (по желанию) | AOF (каждую секунду) + периодический RDB‑дамп; потеря кэшей допустима |
+| ScyllaDB / Cassandra | партии, архивные индексы, чат, попытки задач | снапшоты кластера раз в день / несколько раз в день; хранение на объектном сторедже |
+| Kafka / DWH | события игр и задач | ретеншн топиков Kafka + бэкапы аналитических таблиц с ретеншн‑политикой |
+| S3 / MinIO | аватары, экспорты PGN | версионирование и георепликация бакетов; отдельный бэкап не обязателен |
+
+### 6.8 Обоснование выбора физической схемы
+
+1. Транзакционный контур (аккаунты, рейтинги, турниры, puzzles‑метаданные) сосредоточен в PostgreSQL, где важна строгая согласованность и сложные запросы. [web:10]
+2. Самый тяжёлый поток (игровые ходы и архив партий) вынесен в NoSQL‑кластер ScyllaDB / Cassandra, который хорошо масштабируется по объёму и write‑нагрузке. [web:10]
+3. Redis изолирует высокочастотные сценарии (матчмейкинг, сессии, кэши архива и лидербордов), уменьшая задержку и нагрузку на PostgreSQL и NoSQL.
+4. Аналитика и античит работают по асинхронным событиям через Kafka и DWH, не конкурируя с онлайн‑игрой за ресурсы. [web:8]
+5. Файлы (аватары, PGN‑экспорты) полностью отделены от OLTP‑данных и живут в объектном хранилище с дешёвой георепликацией. [web:6]
 
 ## 7. Алгоритмы
 
