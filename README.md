@@ -319,46 +319,42 @@ Chess.com развернул Realtime Chess Network — глобально ра�
 ### 6.1 Схема системы
 
 ```mermaid
-
-config:
-    graph:
-        wrappingWidth: 1000
+%%{init: {"theme": "default", "flowchart": {"useMaxWidth": false, "width": 1200}}}%%
 graph TD
     subgraph "Бэкенд"
-        API[API Servers]
-        GAME[Game Servers]
-        MM[Matchmaking Service]
+        API[API]
+        GAME[Game]
+        MM[Matchmaking]
     end
-
-    subgraph "Connection Multiplexing"
+ 
+    subgraph "Multiplexing"
         PB[PgBouncer]
     end
-
-    subgraph "Транзакции и справочники (PostgreSQL)"
-        direction LR
-        PG_M[(Master\nDC1 Орегон)]
-        PG_S[(Sync Replica\nDC2 Вирджиния)]
-        PG_A[(Async Replica\nDC3 Нидерланды)]
-        PG_M -- Синхронная репликация --> PG_S
-        PG_M -- Асинхронная репликация --> PG_A
+ 
+    subgraph "PostgreSQL"
+        PG_M[(Master\nОрегон)]
+        PG_S[(Sync\nВирджиния)]
+        PG_A[(Async\nНидерланды)]
+        PG_M -- Sync --> PG_S
+        PG_M -- Async --> PG_A
     end
-
-    subgraph "Игровые данные (ScyllaDB)"
-        CAS[(ScyllaDB Cluster)]
+ 
+    subgraph "ScyllaDB"
+        CAS[(Scylla\nCluster)]
     end
-
-    subgraph "Кэш, сессии и матчмейкинг (Redis)"
-        RED[(Redis Cluster)]
+ 
+    subgraph "Redis"
+        RED[(Redis\nCluster)]
     end
-
-    subgraph "Асинхронная шина данных"
-        KAFKA[[Apache Kafka]]
+ 
+    subgraph "Kafka"
+        KAFKA[[Kafka]]
     end
-
-    subgraph "Объектное хранилище (S3)"
-        S3[(S3\nАватары + Бэкапы)]
+ 
+    subgraph "S3"
+        S3[(S3)]
     end
-
+ 
     API --> PB
     PB --> PG_M
     API --> RED
@@ -366,9 +362,9 @@ graph TD
     API --> S3
     MM --> RED
     GAME --> CAS
-    GAME -. "flush по завершении партии" .-> CAS
-    API -- "Асинхронные события\n(рейтинг, аналитика)" --> KAFKA
-    PG_M -. "WAL Archiving" .-> S3
+    GAME -. "flush on finish" .-> CAS
+    API -- "events" --> KAFKA
+    PG_M -. "WAL" .-> S3
 ```
 
 ### 6.2 Таблица с описанием физической схемы БД
