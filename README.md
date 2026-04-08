@@ -319,6 +319,10 @@ Chess.com развернул Realtime Chess Network — глобально ра�
 ### 6.1 Схема системы
 
 ```mermaid
+
+config:
+    flowchart:
+        wrappingWidth: 1000
 graph TD
     subgraph "Бэкенд"
         API[API Servers]
@@ -379,7 +383,7 @@ graph TD
 | `MatchmakingQueue` | Redis | Sorted Set с ключом `matchmaking:{variant}:{time_control}`, скор = рейтинг | Нет | Redis Cluster (hash tag по `{variant}:{time_control}`, вся очередь одного варианта на одном слоте) | Атомарные операции через Lua-скрипт. Клиент `go-redis` | AOF (everysec). Потеря очереди при аварии допустима — переподключение |
 | `ArchiveSearchCache`, `RatingLeaderboardCache` | Redis | Key-value по хэшу параметров / `{variant}:{page}` | Предрасчитанные результаты поиска и лидербордов | Redis Cluster (hash slot по ключу). Replica на каждый мастер | Клиент `go-redis` | Не бэкапируются. Восстанавливаются из ScyllaDB / PostgreSQL |
 | `Game`, `GameArchiveIndex`, `ChatMessage`, `PuzzleAttempt` | ScyllaDB | Partition Key: `game_id` / `user_id`. Clustering Key: `played_at DESC` / `message_id ASC`. Materialized Views по `opening_eco`, `variant`, `result` | `GameArchiveIndex` дублирует поля из `Game` для поиска без join. В `Game` хранятся `white_rating`, `black_rating`, `*_delta` — снимок рейтингов на момент партии | Consistent hashing по Partition Key. Replication Factor = 3. Партиционирование по месяцам для `PuzzleAttempt` | Клиент `gocql` + `gocqlx`. Token-aware routing напрямую к нужному узлу | Снапшоты через Scylla Manager раз в сутки (на S3). Очистка старых логов через TTL |
-| `GameMoveBuffer` | In-process memory | map `game_id → []Move` на game-сервере | Нет | Аффинность по `game_id` к конкретному game-серверу на всё время партии | Sticky WebSocket. L4 использует consistent hashing по `game_id` для реконнектов | Не бэкапируется. При падении сервера партия пересчитывается из последнего flush |
+| `GameMoveBuffer` | In-process memory | map `game_id -> []Move` на game-сервере | Нет | Аффинность по `game_id` к конкретному game-серверу на всё время партии | Sticky WebSocket. L4 использует consistent hashing по `game_id` для реконнектов | Не бэкапируется. При падении сервера партия пересчитывается из последнего flush |
 | Аватары, медиа (S3) | S3-совместимое хранилище | URL-ключ объекта | В `UserAccount` хранится только `avatar_url` | Репликация между регионами (cross-region). Versioning включён | AWS S3 SDK (`minio-go`). Presigned URL для прямой отдачи клиенту без проксирования | Георепликация бакетов в фоновом режиме |
 
 ### 6.3 Обоснование отказоустойчивости и работы под нагрузкой
