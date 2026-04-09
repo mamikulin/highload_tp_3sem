@@ -671,7 +671,7 @@ r' = r + q² / (1/rd² + q²) × (score - E)
 
 | Технология | Область применения | Мотивационная часть |
 |:---:|:---:|:---:|
-| **TypeScript + Vue.js** | Frontend | Статическая типизация TypeScript снижает количество ошибок |
+| **TypeScript + Vue.js[^17]** | Frontend | Статическая типизация TypeScript снижает количество ошибок |
 | **Kotlin / Swift** | Mobile | Консистентный UI и доступ к системным возможностям (push-уведомления, офлайн-режим) |
 | **Go** | Backend | Высокая производительность и лёгкая конкурентность позволяют эффективно обрабатывать десятки тысяч WebSocket-соединений и реалтайм-игры |
 | **Nginx** | L7-балансировщик, SSL Termination | Стандарт индустрии для reverse proxy; обеспечивает распределение нагрузки между микросервисами и ускоряет TLS-соединения за счёт session tickets |
@@ -682,7 +682,7 @@ r' = r + q² / (1/rd² + q²) × (score - E)
 | **Apache Kafka** | Брокер событий | Асинхронная обработка событий (завершение партии, обновление рейтинга, античит), гарантированная доставка и масштабируемость |
 | **Amazon S3** | Объектное хранилище | Надёжное и масштабируемое облачное хранилище для аватарок |
 | **WebSocket** | Реалтайм взаимодействие | Обеспечивает мгновенную передачу ходов между игроками и обновление состояния партии без задержек |
-| **CDN (Cloudflare / Akamai)** | Доставка статики | Кэширование статических ресурсов на edge-узлах снижает задержки и нагрузку |
+| **CDN (Cloudflare)** | Доставка статики | Кэширование статических ресурсов на edge-узлах снижает задержки и нагрузку |
 
 ### Ссылки
 [^1]: https://www.chess.com/news/view/chesscom-among-100-most-influential-companies-2023
@@ -701,6 +701,7 @@ r' = r + q² / (1/rd² + q²) × (score - E)
 [^14]: https://www.chess.com/news/view/chesscom-gameplay-now-faster-with-servers-across-world
 [^15]: https://blog.nginx.org/blog/testing-the-performance-of-nginx-and-nginx-plus-web-servers
 [^16]: https://en.wikipedia.org/wiki/Glicko_rating_system
+[^17]: https://www.chess.com/jobs
 
 
 
