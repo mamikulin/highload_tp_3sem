@@ -684,6 +684,150 @@ r' = r + q² / (1/rd² + q²) × (score - E)
 | **WebSocket** | Реалтайм взаимодействие | Обеспечивает мгновенную передачу ходов между игроками и обновление состояния партии без задержек |
 | **CDN (Cloudflare)** | Доставка статики | Кэширование статических ресурсов на edge-узлах снижает задержки и нагрузку |
 
+## 10. 
+
+```mermaid
+
+graph TD
+    %% Клиенты и балансировка
+    User[Client]:::client
+
+    L4[L4 LVS Keepalived]:::lb
+    L7_API[Nginx API Gateway api.chess.com]:::lb
+    L7_WS[Nginx WS Gateway game.chess.com]:::lb
+
+    User --> L4
+    L4 --> L7_API
+    L4 --> L7_WS
+
+    %% API слой
+    subgraph api.chess.com
+        Auth[Auth Service]:::svc
+        Profile[Profile Service]:::svc
+        Rating[Rating Service]:::svc
+        Matchmaking[Matchmaking Service]:::svc
+        Social[Social Service]:::svc
+        Tournament[Tournament Service]:::svc
+        ArchiveAPI[Archive API Service]:::svc
+        PuzzlesAPI[Puzzles API Service]:::svc
+    end
+
+    L7_API --> Auth
+    L7_API --> Profile
+    L7_API --> Rating
+    L7_API --> Matchmaking
+    L7_API --> Social
+    L7_API --> Tournament
+    L7_API --> ArchiveAPI
+    L7_API --> PuzzlesAPI
+
+    %% Game слой
+    subgraph game.chess.com
+        GameGW[Game Gateway WS]:::svc
+        SpectatorSvc[Spectator Service]:::svc
+    end
+
+    L7_WS --> GameGW
+    L7_WS --> SpectatorSvc
+
+    %% Kafka и воркеры
+    Kafka[[Kafka Event Bus]]:::mq
+
+    GameGW -- GameFinished GameEvents --> Kafka
+    PuzzlesAPI -- PuzzleEvents --> Kafka
+    Tournament -- TournamentEvents --> Kafka
+    Matchmaking -- MatchFound --> Kafka
+
+    subgraph Workers
+        GameWriter[Game Writer Worker]:::worker
+        RatingWorker[Rating Worker]:::worker
+        AnalyticsWorker[Analytics Service]:::worker
+        AntiCheat[Anti Cheat Service]:::worker
+    end
+
+    Kafka --> GameWriter
+    Kafka --> RatingWorker
+    Kafka --> AnalyticsWorker
+    Kafka --> AntiCheat
+
+    %% Хранилища
+    subgraph PostgreSQL_Cluster
+        PG_User[UserAccount UserSettings Friendship]:::db
+        PG_Rating[PlayerRating]:::db
+        PG_Tourn[Tournament TournamentParticipant]:::db
+        PG_Puzzle[Puzzle FavoriteGame CheatCase]:::db
+    end
+
+    subgraph Redis_Cluster
+        R_Session[AuthSession]:::cache
+        R_MM[MatchmakingQueue]:::cache
+        R_LB[RatingLeaderboardCache]:::cache
+        R_Archive[ArchiveSearchCache]:::cache
+    end
+
+    subgraph ScyllaDB_Cluster
+        SC_Game[Game]:::db
+        SC_Archive[GameArchiveIndex]:::db
+        SC_Chat[ChatMessage]:::db
+        SC_PuzzleAtt[PuzzleAttempt]:::db
+        SC_Spect[GameSpectator]:::db
+        SC_CheatEvt[CheatSignalEvent]:::db
+    end
+
+    subgraph ClickHouse_Cluster
+        CH_Events[GameEvents PuzzleEvents AntiCheatEvents]:::db
+    end
+
+    subgraph Object_Storage
+        S3[S3 Avatars PGN exports]:::obj
+    end
+
+    %% Привязка сервисов к БД
+    Auth --> PG_User
+    Auth --> R_Session
+
+    Profile --> PG_User
+
+    Social --> PG_User
+
+    Rating --> PG_Rating
+    RatingWorker --> PG_Rating
+    RatingWorker --> R_LB
+
+    Matchmaking --> R_MM
+
+    Tournament --> PG_Tourn
+
+    ArchiveAPI --> R_Archive
+    ArchiveAPI --> SC_Archive
+    ArchiveAPI --> SC_Game
+
+    PuzzlesAPI --> PG_Puzzle
+    PuzzlesAPI --> SC_PuzzleAtt
+
+    GameWriter --> SC_Game
+    GameWriter --> SC_Archive
+    GameWriter --> SC_Chat
+
+    AntiCheat --> SC_CheatEvt
+    AntiCheat --> PG_Puzzle
+
+    AnalyticsWorker --> CH_Events
+
+    Profile --> S3
+
+    classDef client fill:#fdf6e3,stroke:#657b83,stroke-width:1px;
+    classDef lb fill:#eee8d5,stroke:#657b83,stroke-width:1px;
+    classDef svc fill:#268bd2,stroke:#004b6b,stroke-width:1px,color:#fff;
+    classDef worker fill:#b58900,stroke:#7b6000,stroke-width:1px,color:#fff;
+    classDef db fill:#859900,stroke:#586e75,stroke-width:1px,color:#fff;
+    classDef cache fill:#d33682,stroke:#6c1f3b,stroke-width:1px,color:#fff;
+    classDef mq fill:#6c71c4,stroke:#393f7d,stroke-width:1px,color:#fff;
+    classDef obj fill:#2aa198,stroke:#005b53,stroke-width:1px,color:#fff;
+
+
+```
+
 ### Ссылки
 [^1]: https://www.chess.com/news/view/chesscom-among-100-most-influential-companies-2023
 [^2]: https://www.chess.com/news/view/chess-boom-1-billion-games-played-in-february
