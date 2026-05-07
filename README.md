@@ -712,6 +712,93 @@ r' = r + q² / (1/rd² + q²) × (score - E)
 **Сценарий 2: ошибка обработки события**  
 Если воркер не может записать данные в базу (таймаут, конфликт, временная недоступность), выполняются повторные попытки обработки. После нескольких неудач сообщение переводится в отдельную очередь ошибок, поэтому основная очередь не блокируется, а остальные события продолжают обрабатываться.
 
+## 11. Расчет ресурсов
+
+Все сервисы развёртываются в 5 дата-центрах (DC1–DC5). Stateless-сервисы (Go-микросервисы) работают в Kubernetes; stateful-компоненты (БД) — на выделенных физических серверах (Bare Metal).
+
+Расчёты выполнены для **DC5 (Азия)** — крупнейшего ДЦ с долей **40% трафика** и пиковой нагрузкой **242 000 RPS**.
+
+### 11.1 Ресурсные требования
+
+Количество ядер CPU для микросервисов рассчитывается по формуле:
+
+**Количество ядер CPU = Пиковый RPS / Норма нагрузки на 1 ядро**
+
+#### Нормы производительности
+
+| Характер нагрузки | Норма (RPS на 1 ядро) |
+| :---: | :---: |
+| **Auth API** (JWT, Redis, сессии) | 8 000 |
+| **Core API** (бизнес-логика, PostgreSQL) | 3 000 |
+| **Message API** (чат, события, Scylla/Kafka) | 6 000 |
+| **Auction API** (ставки, торги, Redis) | 5 000 |
+| **Puzzle API** (задачи, кэш) | 10 000 |
+| **Leaderboard API** (чтение кэша) | 15 000 |
+| **Analytics API** (запись событий, ClickHouse) | 20 000 |
+
+#### Сводная таблица ресурсов
+
+| Сервис / группа сервисов | Пиковая нагрузка (RPS) | Расчёт | CPU (ядер) | RAM (ГБ) |
+| :---: | :---: | :---: | :---: | :---: |
+| **auth-service** (Auth, UserAccount, Profile) | 160 000 | 160 000 / 8 000 | 20 | 32 |
+| **core-service** (Matchmaking, Tournament, Rating, Friendship) | 45 000 | 45 000 / 3 000 | 16 | 32 |
+| **message-service** (Chat, GameEvents, AntiCheatEvents) | 90 000 | 90 000 / 6 000 | 16 | 24 |
+| **auction-service** (Auction, AuctionSession) | 30 000 | 30 000 / 5 000 | 6 | 12 |
+| **puzzle-service** (Puzzle, PuzzleAttempts) | 50 000 | 50 000 / 10 000 | 5 | 8 |
+| **leaderboard-service** (Leaderboard, PlayerRating read) | 80 000 | 80 000 / 15 000 | 6 | 12 |
+| **analytics-service** (Analytics Worker, AntiCheat, Rating Worker) | 120 000 | 120 000 / 20 000 | 6 | 16 |
+| **media-service** (Avatar Storage, S3 proxy) | 25 000 | 25 000 / 4 000 | 7 | 16 |
+| **gateway-service** (API Gateway, WS Gateway) | 242 000 | 242 000 / 10 000* | 25 | 48 |
+| **Итого** | | | **107** | **200 ГБ** |
+
+> *Gateway обрабатывает разнородные запросы (REST+WS), норма принята как 10 000 RPS/ядро.
+
+### 11.2 Конфигурации и стоимость
+
+Формула стоимости:  
+**Итоговая стоимость = Количество серверов × Цена за единицу**  
+**Амортизация на 5 лет = Итоговая стоимость / 60 месяцев**
+
+| Тип сервера | Модель | Конфигурация | Cores | Кол‑во | Цена (€) | Стоимость (€) | Амортизация/мес (€) |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Kubernetes worker** (stateless) | CyberServe Xeon SP1-102G | Xeon Silver 4514Y / 128GB RAM / 2x1TB NVMe / 10Gbps | 16 | 28 | 5 490 | 153 720 | 2 562 |
+| **LVS L4** | CyberServe Xeon E-RS300-E12 | Xeon E-2414 / 32GB RAM / 2x1TB NVMe / 2x10Gbps | 4 | 24 | 3 450 | 82 800 | 1 380 |
+| **Nginx L7** | CyberServe Xeon SP1-102G | Xeon Silver 4514Y / 128GB RAM / 2x1TB NVMe / 10Gbps | 16 | 48 | 5 490 | 263 520 | 4 392 |
+| **PostgreSQL** (Users, Ratings, Tournaments) | CyberServe Xeon SP1-102G | Xeon Silver 4514Y / 256GB RAM / 4x2TB NVMe / 10Gbps | 16 | 24 | 6 850 | 164 400 | 2 740 |
+| **ScyllaDB** (Chat, Events, ArchiveIndex) | CyberServe Xeon SP1-102G | Xeon Silver 4514Y / 128GB RAM / 4x2TB NVMe / 10Gbps | 16 | 20 | 6 400 | 128 000 | 2 133 |
+| **Redis** (Sessions, Queue, Leaderboards, Auction) | CyberServe Xeon SP1-102G | Xeon Silver 4514Y / 256GB RAM / 2x1TB NVMe / 10Gbps | 16 | 24 | 6 500 | 156 000 | 2 600 |
+| **ClickHouse** (Analytics, Anti‑Cheat) | CyberServe Xeon SP1-102G | Xeon Silver 4514Y / 128GB RAM / 4x4TB NVMe / 25Gbps | 16 | 12 | 7 200 | 86 400 | 1 440 |
+| **Ceph OSD** (Avatar storage, PGN exports) | CyberServe Xeon E-RS300-E12 | Xeon E-2414 / 32GB RAM / 4x16TB HDD / 10Gbps | 4 | 40 | 3 900 | 156 000 | 2 600 |
+| **Итого** | | | | **220** | | **1 190 840** | **19 847** |
+
+> *В таблице не учтены серверы управления, мониторинга и резервные копии – они добавляют около +10% к расходам.*
+
+### 11.3 Аллокация в Kubernetes
+
+| Сервис | Реплики | CPU Request | RAM Request | Назначение |
+| :---: | :---: | :---: | :---: | :---: |
+| **auth-service** | 5 | 4 | 8 ГБ | Аутентификация, сессии, профили |
+| **core-service** | 8 | 2 | 4 ГБ | Матчмейкинг, турниры, рейтинг, друзья |
+| **message-service** | 4 | 4 | 6 ГБ | Чат, события (Kafka consumer) |
+| **auction-service** | 3 | 2 | 4 ГБ | Аукционы, ставки |
+| **puzzle-service** | 2 | 3 | 4 ГБ | Задачи, проверка решений |
+| **leaderboard-service** | 2 | 3 | 6 ГБ | Таблицы лидеров (кешированные) |
+| **analytics-service** | 3 | 2 | 5 ГБ | Воркеры античита, рейтингов, аналитики |
+| **media-service** | 4 | 2 | 4 ГБ | S3 прокси для аватаров |
+| **gateway-service** | 7 | 4 | 8 ГБ | API Gateway + WS Gateway |
+
+**Примечания:**  
+- CPU limits = CPU requests (throttling недопустим для realtime‑игр).  
+- RAM limits = 2× RAM requests.  
+- Для всех Go-сервисов устанавливается `GOMEMLIMIT = 90% от RAM limit`, чтобы избежать OOM Kill.
+
+### 11.4 Обоснование масштабирования
+
+- **Ceph OSD (40 серверов)** — начальный объём для хранения аватарок, экспорта PGN, логов. Закупка производится порциями при заполнении >70%.  
+- **ClickHouse (12 серверов)** — хранение аналитических событий (партии, античит, действия пользователей) за последние 6–12 месяцев. Старые партиции выгружаются в S3.  
+- **L4/L7 балансировщики** рассчитаны с запасом на рост трафика + резервирование (N+1 для L7, Active‑Passive для L4).  
+- Количество серверов в DC1–DC4 ниже, чем в DC5, и пропорционально доле трафика (30%, 20%, 10% соответственно).
+
 ### Ссылки
 [^1]: https://www.chess.com/news/view/chesscom-among-100-most-influential-companies-2023
 [^2]: https://www.chess.com/news/view/chess-boom-1-billion-games-played-in-february
