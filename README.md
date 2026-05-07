@@ -743,7 +743,6 @@ r' = r + q² / (1/rd² + q²) × (score - E)
 | **auth-service** (Auth, UserAccount, Profile) | 160 000 | 160 000 / 8 000 | 20 | 32 |
 | **core-service** (Matchmaking, Tournament, Rating, Friendship) | 45 000 | 45 000 / 3 000 | 16 | 32 |
 | **message-service** (Chat, GameEvents, AntiCheatEvents) | 90 000 | 90 000 / 6 000 | 16 | 24 |
-| **auction-service** (Auction, AuctionSession) | 30 000 | 30 000 / 5 000 | 6 | 12 |
 | **puzzle-service** (Puzzle, PuzzleAttempts) | 50 000 | 50 000 / 10 000 | 5 | 8 |
 | **leaderboard-service** (Leaderboard, PlayerRating read) | 80 000 | 80 000 / 15 000 | 6 | 12 |
 | **analytics-service** (Analytics Worker, AntiCheat, Rating Worker) | 120 000 | 120 000 / 20 000 | 6 | 16 |
@@ -780,7 +779,6 @@ r' = r + q² / (1/rd² + q²) × (score - E)
 | **auth-service** | 5 | 4 | 8 ГБ | Аутентификация, сессии, профили |
 | **core-service** | 8 | 2 | 4 ГБ | Матчмейкинг, турниры, рейтинг, друзья |
 | **message-service** | 4 | 4 | 6 ГБ | Чат, события (Kafka consumer) |
-| **auction-service** | 3 | 2 | 4 ГБ | Аукционы, ставки |
 | **puzzle-service** | 2 | 3 | 4 ГБ | Задачи, проверка решений |
 | **leaderboard-service** | 2 | 3 | 6 ГБ | Таблицы лидеров (кешированные) |
 | **analytics-service** | 3 | 2 | 5 ГБ | Воркеры античита, рейтингов, аналитики |
@@ -794,7 +792,6 @@ r' = r + q² / (1/rd² + q²) × (score - E)
 
 ### 11.4 Обоснование масштабирования
 
-- **Ceph OSD (40 серверов)** — начальный объём для хранения аватарок, экспорта PGN, логов. Закупка производится порциями при заполнении >70%.  
 - **ClickHouse (12 серверов)** — хранение аналитических событий (партии, античит, действия пользователей) за последние 6–12 месяцев. Старые партиции выгружаются в S3.  
 - **L4/L7 балансировщики** рассчитаны с запасом на рост трафика + резервирование (N+1 для L7, Active‑Passive для L4).  
 - Количество серверов в DC1–DC4 ниже, чем в DC5, и пропорционально доле трафика (30%, 20%, 10% соответственно).
