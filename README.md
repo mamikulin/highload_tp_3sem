@@ -767,7 +767,6 @@ r' = r + q² / (1/rd² + q²) × (score - E)
 | **ScyllaDB** (Chat, Events, ArchiveIndex) | CyberServe Xeon SP1-102G | Xeon Silver 4514Y / 128GB RAM / 4x2TB NVMe / 10Gbps | 16 | 20 | 6 400 | 128 000 | 2 133 |
 | **Redis** (Sessions, Queue, Leaderboards, Auction) | CyberServe Xeon SP1-102G | Xeon Silver 4514Y / 256GB RAM / 2x1TB NVMe / 10Gbps | 16 | 24 | 6 500 | 156 000 | 2 600 |
 | **ClickHouse** (Analytics, Anti‑Cheat) | CyberServe Xeon SP1-102G | Xeon Silver 4514Y / 128GB RAM / 4x4TB NVMe / 25Gbps | 16 | 12 | 7 200 | 86 400 | 1 440 |
-| **Ceph OSD** (Avatar storage, PGN exports) | CyberServe Xeon E-RS300-E12 | Xeon E-2414 / 32GB RAM / 4x16TB HDD / 10Gbps | 4 | 40 | 3 900 | 156 000 | 2 600 |
 | **Итого** | | | | **220** | | **1 190 840** | **19 847** |
 
 > *В таблице не учтены серверы управления, мониторинга и резервные копии – они добавляют около +10% к расходам.*
