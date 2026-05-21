@@ -686,7 +686,7 @@ r' = r + q² / (1/rd² + q²) × (score - E)
 
 ## 10. Схема проекта
 
-![alt text](images/ar.png) 
+![alt text](images/ar4-0.png) 
 *Схема проекта*
 
 ## 9. Обеспечение надёжности
